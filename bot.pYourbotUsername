@@ -1,0 +1,106 @@
+
+import sqlite3
+import requests
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+
+# ===== CONFIG =====
+TOKEN = "8485995133:AAFIkJxi4bFftyA5hCgCZ4d45utPzBOfCYo"
+CHAPA_API_KEY = "CHAPUBK_TEST-2sERlLatszZ8OfSNr5uGWAaX545KIN6g"
+CHAPA_BASE_URL = "https://api.chapa.co/v1/payment/initialize/"
+
+# ===== DATABASE =====
+conn = sqlite3.connect("users.db")
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    referrals INTEGER DEFAULT 0
+)
+""")
+conn.commit()
+
+# ===== HANDLERS =====
+async def start(update, context):
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or "NoUsername"
+
+    # Extract referrer_id from /start parameter
+    referrer_id = None
+    if context.args:
+        try:
+            referrer_id = int(context.args[0])
+        except ValueError:
+            referrer_id = None
+
+    # Insert user if not exists
+    c.execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)", (user_id, username))
+    conn.commit()
+
+    # Increment referral count if applicable
+    if referrer_id and referrer_id != user_id:
+        c.execute("UPDATE users SET referrals = referrals + 1 WHERE user_id = ?", (referrer_id,))
+        conn.commit()
+
+    await update.message.reply_text(f"Hello {username}! You are registered ✅")
+
+async def refer(update, context):
+    await update.message.reply_text(
+        "Share your link to earn rewards: t.me/YourBotUsername?start={}".format(update.message.from_user.id)
+    )
+
+async def stats(update, context):
+    user_id = update.message.from_user.id
+    c.execute("SELECT referrals FROM users WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    referrals = result[0] if result else 0
+    await update.message.reply_text(f"You have {referrals} referral(s) ✅")
+
+async def withdraw(update, context):
+    user_id = update.message.from_user.id
+    c.execute("SELECT referrals FROM users WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+
+    if not result or result[0] == 0:
+        await update.message.reply_text("You have no rewards yet.")
+        return
+
+    amount = result[0] * 5  # 5 ETB per referral
+
+    # Initialize Chapa payment
+    data = {
+        "amount": amount,
+        "currency": "ETB",
+        "email": f"user{user_id}@example.com",  # Test email
+        "first_name": "Telegram",
+        "last_name": "User",
+        "callback_url": "https://yourwebsite.com/callback"
+    }
+    headers = {"Authorization": f"Bearer {CHAPA_API_KEY}"}
+
+    try:
+        response = requests.post(CHAPA_BASE_URL, json=data, headers=headers)
+        response.raise_for_status()
+        checkout_url = response.json()["data"]["checkout_url"]
+
+        await update.message.reply_text(f"✅ Withdraw {amount} ETB here: {checkout_url}")
+
+        # Reset referrals after payout
+        c.execute("UPDATE users SET referrals = 0 WHERE user_id = ?", (user_id,))
+        conn.commit()
+    except Exception as e:
+        await update.message.reply_text(f"❌ Payment initialization failed. Try again later.\nError: {e}")
+
+# ===== MAIN =====
+def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("refer", refer))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("withdraw", withdraw))
+
+    print("Bot is running...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
