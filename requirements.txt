@@ -5,3 +5,4 @@ flask
 pyTelegramBotAPI
 pyTelegramBotAPI
 pyTelegramBotAPI
+gunicorn
