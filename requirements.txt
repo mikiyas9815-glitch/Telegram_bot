@@ -1,8 +1,6 @@
-python-telegram-bot==20.3
-aiohttp==3.9.5
-requests
-flask
 pyTelegramBotAPI
-pyTelegramBotAPI
-pyTelegramBotAPI
+fastapi
+uvicorn
 gunicorn
+requests
+anyio
